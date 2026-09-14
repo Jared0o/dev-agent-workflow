@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.dev-workflow/
+.venv/
+.env
+.env.*
+!.env.example
+dist/

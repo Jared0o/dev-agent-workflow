@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dev Workflow"
+  short_description: "Od zaakceptowanego planu do kodu i draft PR"
+  default_prompt: "$dev-workflow Przeanalizuj zadanie i zaproponuj plan do akceptacji."

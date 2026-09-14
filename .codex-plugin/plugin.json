@@ -1,0 +1,22 @@
+{
+  "name": "dev-agent-workflow",
+  "version": "0.1.0+codex.20260914185313",
+  "description": "Native Codex agents for approved plans, implementation, tests, independent review and delivery.",
+  "author": {
+    "name": "Jared0o"
+  },
+  "skills": "./skills/",
+  "repository": "https://github.com/Jared0o/dev-agent-workflow",
+  "interface": {
+    "displayName": "Dev Agent Workflow",
+    "shortDescription": "Od planu do sprawdzonego kodu i draft PR.",
+    "longDescription": "Five-stage application development with native agents, explicit model routing, compact handoffs and resumable evidence.",
+    "developerName": "Jared0o",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": "$dev-workflow Przeanalizuj zadanie i przygotuj plan do mojej akceptacji."
+  }
+}
