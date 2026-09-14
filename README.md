@@ -1,7 +1,8 @@
 # Dev Agent Workflow
 
 Plugin Codex CLI prowadzący od analizy aplikacji lub featura do przetestowanych
-zmian i draft PR. Główny orchestrator deleguje zadania natywnym agentom.
+zmian i draft PR. Zakres kontroli zależy od ryzyka zadania.
+Główny orchestrator deleguje zadania natywnym agentom.
 Komunikacja z użytkownikiem jest po polsku, materiały robocze po angielsku.
 
 ## Instalacja
@@ -45,21 +46,30 @@ niedostępności workflow zatrzymuje delegowanie i prosi o wybór zamiennika.
 
 ## Przebieg
 
-| Etap | Model domyślny | Wynik |
-|---|---|---|
-| Analiza | GPT-6 Astra / high | Specyfikacja, architektura, kontrakty i zadania do Twojej akceptacji |
-| Implementacja | GPT-5.6 Terra / medium | Kod i testy w przypisanym zakresie |
-| Testy | GPT-5.6 Terra / medium | Wyniki narzędzi i ocena scenariuszy akceptacyjnych |
-| Review | GPT-6 Astra / high | Niezależna ocena poprawności, zgodności i bezpieczeństwa |
-| Dokumentacja | GPT-5.6 Luna / low | Dokumentacja i podsumowanie; orchestrator publikuje draft PR |
+Nowe zadania: **krótki plan → implementacja z testami i dokumentacją →
+weryfikacja → oddanie zmian**. Orchestrator zapisuje poziom ryzyka i uzasadnienie.
 
-Po akceptacji analizy dalsza praca przebiega samodzielnie w ustalonym zakresie.
-Zmiana zakresu lub kontraktu wraca do użytkownika. Drobne poprawki mają krótsze
-etapy, jednego wykonawcę i odpowiednio ograniczone kontrole.
+| Ryzyko | Przykłady | Akceptacja i kontrola |
+|---|---|---|
+| Niskie (`low`) | Zwykły tekst dokumentacji, kosmetyka UI, jednoznaczna lokalna poprawka bez wpływu na bezpieczeństwo, trwałe dane i kontrakty | Jasne zlecenie wystarcza; wykonawca i sprawdzenie przez orchestratora |
+| Standardowe (`standard`, domyślne) | Pozostałe zadania bez przesłanek wysokiego ryzyka | Akceptacja planu, wykonawca i niezależny reviewer |
+| Wysokie (`high`) | Logowanie, uprawnienia, płatności, migracje, operacje destrukcyjne, zgodność publicznego API | Akceptacja planu, wykonawca, niezależny tester i reviewer |
+
+Dla jednego zadania implementacyjnego oznacza to odpowiednio **1, 2 lub 3 agentów
+pomocniczych**, bez liczenia orchestratora i dodatkowych rund napraw. Liczba plików
+nie wyznacza ryzyka. Niejasny wpływ wymaga rozpoznania; prośba o samą analizę nie
+upoważnia do implementacji. Już zaakceptowanego planu nie trzeba akceptować ponownie.
+
+Orchestrator używa GPT-6 Astra / high, wykonawca i tester GPT-5.6 Terra / medium,
+a reviewer GPT-6 Astra / high. Wykonawca przygotowuje także dokumentację przed
+weryfikacją. Osobny dokumenter GPT-5.6 Luna / low pozostaje tylko dla starych zadań.
+Zmiana zakresu lub kontraktu wraca do użytkownika. Wzrost ryzyka zwiększa wymagane
+kontrole i zatrzymuje zależną pracę, jeśli potrzebna jest nowa akceptacja.
 
 Profile obejmują Go, C#/.NET i React/Next.js. Korzystają z narzędzi i wersji
 zastanego projektu. REST/OpenAPI lub gRPC/protobuf wybierane są podczas analizy;
-plugin nie narzuca architektury ani CMS. Do trzech pomocniczych agentów może
+plugin nie narzuca architektury ani CMS. Domyślnie implementuje jeden wykonawca;
+podział pracy służy tylko niezależnym częściom. Do trzech pomocniczych agentów może
 pracować równolegle, jeżeli zakresy są niezależne. Wspólne kontrakty i lockfile
 mają jednego właściciela. Tylko orchestrator wykonuje operacje Git i publikuje.
 
@@ -82,10 +92,13 @@ mocniejszego modelu. Ustawienie `delivery: "local"` kończy pracę lokalnym comm
 Modelowe role, limity prób i równoległości można zmieniać w konfiguracji;
 zmiana konfiguracji w trakcie zadania wymaga ponownego zaakceptowania planu.
 
-`.dev-workflow/tasks/<id>/` przechowuje specyfikację, graf zadań, stan, raporty
-i informacje o publikacji. Orchestrator dodaje `.dev-workflow/` do ignorowanych
+`.dev-workflow/tasks/<id>/` przechowuje krótką specyfikację, listę zadań, stan,
+jeden raport weryfikacji i informacje o publikacji. Orchestrator dodaje `.dev-workflow/` do ignorowanych
 plików aplikacji. Zawartość nie trafia do PR. Zapis umożliwia wznowienie w nowej
-sesji; repozytoryjne zmiany i raporty są porównywane przez SHA-256.
+sesji; repozytoryjne zmiany i raporty są porównywane przez SHA-256. Nowe zadania
+używają formatu stanu v2. Istniejące zadania v1 zachowują poprzednie etapy,
+akceptację i wymagane raporty; nie są automatycznie migrowane. Konfiguracja
+pozostaje w formacie v1, łącznie z rolą dokumentera dla starszych zadań.
 
 [Opis poleceń i formatu stanu](skills/dev-workflow/references/state.md)
 wyjaśnia akceptację, kontrolę zależności, zapisywanie wyników i wznowienie.
@@ -101,8 +114,11 @@ Agenci otrzymują krótkie pakiety zadań i odnośniki do potrzebnych plików za
 pełnej historii. Testy wykonują narzędzia projektu, a model ocenia ich wyniki
 i sensowność scenariuszy. Ponawiane są kontrole dotknięte zmianą; zachowanie
 poprzednich wyników po zmianie samej dokumentacji wymaga uzasadnionej oceny delty.
-Review i wymagane testy blokują publikację, jeżeli nie zostały wykonane lub wykryły
-nierozwiązany problem. Brak narzędzia nie oznacza wyniku pozytywnego.
+Weryfikacja wymagana dla danego ryzyka i wymagane testy blokują publikację, jeśli
+nie zostały wykonane lub wykryły nierozwiązany problem. Brak narzędzia nie oznacza
+wyniku pozytywnego. Reviewer wykorzystuje aktualne wyniki wykonawcy, a tester
+wysokiego ryzyka koncentruje się na scenariuszach i integracjach wymagających
+niezależnego sprawdzenia. Nowy agent nie oznacza automatycznie powtórzenia testów.
 
 Podsumowanie podaje rzeczywistą liczbę agentów/prób i tokeny, jeżeli runtime je
 udostępnia. Plugin nie odczytuje sekretów ani prywatnych logów sesji w celu pomiaru.

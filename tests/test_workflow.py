@@ -65,6 +65,14 @@ class WorkflowTests(unittest.TestCase):
 
     def initialize(self, plan=None):
         state = self.cli("init", "--title", "Add feature")
+        # Most historical assertions deliberately exercise retained v1 artifacts.
+        legacy = self.task / "state.json"
+        data = json.loads(legacy.read_text(encoding="utf-8"))
+        data["schema_version"] = 1
+        data.pop("risk", None)
+        data.pop("risk_reason", None)
+        data.pop("plan_digest", None)
+        legacy.write_text(json.dumps(data), encoding="utf-8")
         (self.task / "spec.md").write_text(
             "# Add feature\nImplement the agreed behavior with appropriate tests.\n",
             encoding="utf-8",

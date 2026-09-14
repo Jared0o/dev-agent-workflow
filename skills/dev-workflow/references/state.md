@@ -1,84 +1,144 @@
 # State and commands
 
-Python 3.10+ and Git are required. Run the script by its absolute plugin path;
-pass the application's Git root with `--project`. The plugin never executes strings
-from `tasks.json` as shell commands. The orchestrator selects/runs the actual checks.
+Python 3.10+ and Git are required. Run the helper by its absolute plugin path with
+the application's Git root as `--project`. Initialize Git for new applications.
+Keep `.dev-workflow/` ignored; the helper does not change Git ignore rules.
+Only the orchestrator writes state. Commands do not execute shell strings from
+tasks or reports.
+
+## New tasks (v2)
 
 ```sh
 python3 <plugin>/scripts/workflow.py config --project <repo>
-python3 <plugin>/scripts/workflow.py init --project <repo> --task add-orders --title "Add orders"
+python3 <plugin>/scripts/workflow.py init --project <repo> --task add-orders --title "Add orders" --risk standard --risk-reason "Changes application behavior without high-risk boundaries"
 python3 <plugin>/scripts/workflow.py status --project <repo> --task add-orders
 ```
 
-Initialize Git for a new application first. The helper also supports an unborn
-branch. It expects the repository root; use a separate workflow for submodules.
-Keep `.dev-workflow/` ignored in the application before taking validation snapshots.
-The helper does not modify the application's Git ignore rules automatically.
+Risk defaults to `standard`; record a meaningful reason before approval. Write the
+short `spec.md` and `tasks.json` in `.dev-workflow/tasks/<task>/` using
+[handoffs](handoffs.md). Include the classification and rationale in the displayed
+plan. One task entry suffices for one implementation owner.
 
-Fill the generated `spec.md` and `tasks.json` under
-`.dev-workflow/tasks/<task>/`. Read [handoffs](handoffs.md) for the schema. The
-orchestrator alone writes state. Agents can write distinct reports in that task
-directory, without editing `state.json`. This avoids concurrent lost updates.
-
-After the user explicitly approves the displayed specification:
+After explicit acceptance of that plan, or an already accepted exact revision:
 
 ```sh
 python3 <plugin>/scripts/workflow.py approve --project <repo> --task add-orders --confirmed-by-user
+```
+
+For `low` only, a clear request to perform the work can authorize it without another
+pause: use `approve --authorized-by-request` instead. These flags are mutually
+exclusive. Neither risk selection nor a request only for analysis is authorization.
+
+Use `approve --risk high --risk-reason "<new rationale>" --confirmed-by-user`
+to record an explicitly accepted reclassification. Reclassifying an already
+authorized task requires explicit confirmation, including lowering its risk.
+Pause dependent work until any needed acceptance is obtained.
+Risk and reason are fingerprinted with spec, tasks and effective config.
+Approval clears previous completion and evidence; never use reapproval to recycle
+a failed task's repair budget.
+
+```sh
 python3 <plugin>/scripts/workflow.py task-done --project <repo> --task add-orders --item backend
 python3 <plugin>/scripts/workflow.py advance --project <repo> --task add-orders
 ```
 
-`approve` fingerprints the specification, task graph and effective configuration,
-enters implementation and clears prior completion/evidence/repair counters. It is
-only for a newly accepted plan revision, never to reset a failing task's budget.
-Spec/config changes invalidate approval. Task completion requires its dependencies.
-`advance` moves one stage and refuses incomplete tasks or stale required evidence.
+Task completion requires its dependencies. The v2 sequence is
+`analysis → implementation → verification → delivery → done`. Documentation is
+part of implementation, not a separate stage. `advance` refuses incomplete work
+or missing, failed or stale required evidence.
 
-Before each check get `fingerprint` from `status`. Save an actual result report
-(e.g. `reports/tests.md`) inside the task directory, then record it:
+## One verification report
 
-```sh
-python3 <plugin>/scripts/workflow.py record --project <repo> --task add-orders --kind tests --result pass --report reports/tests.md --fingerprint <fingerprint-before-checks>
+Collect actual command results and assessments into `reports/verification.json`.
+For example, this standard-risk report shape requires an independent reviewer:
+
+```json
+{
+  "implementer_ids": ["worker-1"],
+  "checks": [
+    {"command": "python3 -m unittest discover -s tests -v", "result": "pass", "exit_code": 0}
+  ],
+  "assessments": {
+    "reviewer": {
+      "agent_id": "reviewer-1",
+      "result": "pass",
+      "summary": "Reviewed the integrated code and documentation; no blocking findings."
+    }
+  },
+  "documentation": "Updated README.md for the new behavior.",
+  "blockers": []
+}
 ```
 
-Kinds are `tests`, `review`, `documentation`; results are `pass`, `fail`, `not-run`.
-Reports include commands/exit codes or review evidence, required checks not run,
-findings, and the checked code fingerprint. Empty reports are rejected. Their
-content hashes are checked too: editing a report requires recording it again.
+List the actual implementing agents, all required commands, results and exit codes.
+Every command in the approved tasks' `checks` must appear verbatim in the report's
+`checks[].command`; extra relevant commands are allowed. The helper rejects a pass
+when an approved command is omitted. Select actual commands while preparing the
+plan, rather than descriptive labels. Include non-root working directories in the
+command itself and run it from the agreed project root.
+Use `not-run` and a null exit code for unavailable checks. Include missing required
+work in blockers; use the documentation field for changed docs or a justification
+that no update is needed. Keep nonblocking findings, limitations and reuse
+justifications in assessment summaries, referring to full logs when helpful.
 
-Snapshot fingerprints include tracked and nonignored untracked files, executable
-bits and symlinks; they exclude `.dev-workflow/`. Git commit metadata is excluded,
-so committing identical code does not invalidate checks. Ignored dependencies and
-external services are not fingerprinted: record relevant versions in the report
-and reassess when these change. Dirty/staged edits must be inspected on resume.
+Required assessments are `orchestrator` for low, `reviewer` for standard, and
+`tester` plus `reviewer` for high. Assessors must differ from implementers, and
+the high-risk tester and reviewer must differ from each other. Use actual runtime
+agent identifiers (including the main agent for the low-risk assessment).
+Every listed check must pass with exit code zero and required assessments must
+pass with no blockers to record an overall pass. Failed or unperformed verification
+can be recorded before the report is complete.
 
-Any changed project file makes prior evidence stale. Reconcile it explicitly:
-rerun affected checks and examine the changed review surface. For a docs-only
-delta, a tester can retain previous runtime-test results after inspecting and
-recording why the delta cannot affect them; run relevant doc/example checks.
-Write a new report identifying old and new fingerprints, changed paths and reused
-checks, and record against the new fingerprint. Never simply re-stamp old reports.
-Reuse requires a saved snapshot/diff or Git reference that proves the delta from
-the previously checked content. A whole-tree hash or current `git diff` alone
-cannot reconstruct earlier uncommitted content. If that baseline is unavailable
-after interruption, rerun the required checks and review rather than guessing.
-Do the equivalent delta review with the independent reviewer. This preserves an
-auditable decision without rerunning an unrelated full suite.
+Before checks obtain `fingerprint` from `status`, then record the observed outcome:
+
+```sh
+python3 <plugin>/scripts/workflow.py record --project <repo> --task add-orders --kind verification --result pass --report reports/verification.json --fingerprint <fingerprint-before-checks>
+```
+
+The report hash and code fingerprint must still match when advancing. Editing the
+report requires recording it again. Helpers validate recorded structure and
+identity separation; they cannot prove that a command ran, an independent agent
+participated or a human approved. Never manufacture evidence to satisfy a gate.
+
+## Reuse and interruption
+
+Fingerprints include tracked and nonignored untracked files, executable bits and
+symlinks, excluding `.dev-workflow/` and commit metadata. Committing identical code
+does not invalidate checks. Submodules require separate workflows. Ignored
+dependencies and external services are not captured: record relevant versions and
+reassess results when those change.
+
+Any project-file change makes recorded evidence stale. Rerun affected checks and
+assess the delta, then update the single report with old/new fingerprints, changed
+paths, reused results and their justification. Use a saved snapshot/diff or Git
+reference that reconstructs the checked baseline. A hash or current `git diff`
+alone cannot reconstruct earlier uncommitted content. If that baseline is missing
+after interruption, rerun required checks and assessment rather than guessing.
+
+A documentation-only delta can reuse runtime results after the required assessor
+reviews its impact; check affected executable examples/docs. No separate tester
+is needed below high risk. Reviewers use valid existing test evidence instead of
+automatically rerunning it.
+
+Save state at stage boundaries and before stopping. On interruption collect
+active results, inspect dirty/staged work and resume only unfinished or invalidated
+work. Keep full logs in the ignored artifact directory and handoffs concise.
+
+## Repairs and delivery
 
 ```sh
 python3 <plugin>/scripts/workflow.py retry --project <repo> --task add-orders --problem auth-failure
 ```
 
-Call `retry` before each repair round for a stable problem ID. The returned mode
-requires orchestrator diagnosis on escalation; attempts beyond the configured
-budget fail. Keep problem IDs stable instead of renaming failures to bypass it.
+Record a retry before each repair round using a stable problem ID. Respect the
+configured ordinary/diagnosed attempt limits; exhausted problems remain blockers.
+Spec/config changes require a newly accepted revision, not an excuse to reset
+attempts. Never edit state manually to bypass a gate.
 
-Save `delivery.json` with `fingerprint`, `commit`, `branch`, `base` and verified
-`pr_url`, then advance from delivery to done. With the optional `delivery: local`
-override, omit the PR URL but record the final local commit. Status works at any
-stage and flags stale approval/evidence. On interruption stop scheduling, collect
-active-agent results, inspect the tree, then resume only unfinished/invalidated work.
+Follow [delivery](delivery.md). Save `delivery.json` with `fingerprint`, `commit`,
+`branch`, `base` and a verified `pr_url`, then advance to done. For `delivery: local`,
+omit the PR URL but retain the final local commit. Publication failure preserves
+local work in delivery.
 
-The JSON files are local audit aids, not authentication or a security boundary.
-Never edit state manually to bypass a gate. Native tool results and the actual
-user conversation remain the evidence for claims recorded here.
+Existing `schema_version: 1` tasks use the [legacy stages and reports](legacy-v1.md).
+The configuration schema remains version 1; it is separate from task-state v2.

@@ -11,7 +11,11 @@ writes. If unrelated changes exist, use a separate worktree from the agreed base
 or preserve them with an explicit file ownership list; never auto-stash/reset them.
 Only stage the reviewed task files. Exclude `.dev-workflow/`, secrets and logs.
 Use `git diff --cached` to confirm what will be committed, and inspect untracked
-files too. Commit after required tests, independent review and documentation pass.
+files too.
+
+For v2, commit after current verification passes for the recorded risk level;
+documentation is already included. For v1, retain the separate test, independent
+review and documentation gates.
 
 Check `gh auth status`. Push the task branch normally (no force push), then inspect
 whether a PR for this exact head/base already exists before `gh pr create --draft`.

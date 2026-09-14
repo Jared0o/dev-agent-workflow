@@ -11,9 +11,12 @@ import subprocess
 import sys
 import tempfile
 
+
 PLUGIN = Path(__file__).resolve().parents[1]
-STAGES = ("analysis", "implementation", "tests", "review", "documentation", "delivery", "done")
+V1_STAGES = ("analysis", "implementation", "tests", "review", "documentation", "delivery", "done")
+V2_STAGES = ("analysis", "implementation", "verification", "delivery", "done")
 ROLES = {"orchestrator", "implementer", "tester", "reviewer", "documenter"}
+RISKS = {"low", "standard", "high"}
 
 
 def require(condition, message):
@@ -175,18 +178,37 @@ def approval_digest(project, directory):
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
+def v2_approval_digest(project, directory, risk, reason):
+    require(risk in RISKS, "Invalid risk")
+    require(isinstance(reason, str) and reason.strip(),
+            "A nonempty --risk-reason is required for approval")
+    data = {"plan": approval_digest(project, directory), "risk": risk, "risk_reason": reason}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
 def load_state(directory):
     state = read_json(directory / "state.json")
-    require(isinstance(state, dict) and state.get("schema_version") == 1
-            and state.get("stage") in STAGES, "Invalid or unsupported state")
+    require(isinstance(state, dict), "Invalid or unsupported state")
+    version = state.get("schema_version")
+    stages = V1_STAGES if version == 1 else V2_STAGES
+    require(type(version) is int and version in {1, 2} and state.get("stage") in stages,
+            "Invalid or unsupported state")
     require(isinstance(state.get("completed_tasks"), list)
             and isinstance(state.get("evidence"), dict)
             and isinstance(state.get("attempts"), dict), "Invalid state collections")
+    if version == 2:
+        require(state.get("risk") in RISKS
+                and (state.get("risk_reason") is None or isinstance(state["risk_reason"], str)),
+                "Invalid v2 risk state")
     return state
 
 
 def approved(project, directory, state):
-    return state.get("approval") == approval_digest(project, directory)
+    if state["schema_version"] == 1:
+        expected = approval_digest(project, directory)
+    else:
+        expected = v2_approval_digest(project, directory, state["risk"], state["risk_reason"])
+    return state.get("approval") == expected
 
 
 def report_file(directory, name):
@@ -209,6 +231,63 @@ def evidence_valid(directory, state, kind, current):
         return False
 
 
+def required_roles(risk):
+    return {"low": ("orchestrator",), "standard": ("reviewer",),
+            "high": ("tester", "reviewer")}[risk]
+
+
+def verification_result(data, risk):
+    require(isinstance(data, dict), "Verification report must be a JSON object")
+    implementers = data.get("implementer_ids")
+    text_list(implementers, "implementer_ids")
+    require(len(set(implementers)) == len(implementers),
+            "implementer_ids must be unique")
+    checks = data.get("checks")
+    require(isinstance(checks, list) and checks, "checks must be a nonempty list")
+    outcomes = []
+    for check in checks:
+        require(isinstance(check, dict) and set(check) == {"command", "result", "exit_code"}
+                and isinstance(check["command"], str) and check["command"].strip()
+                and check["result"] in {"pass", "fail", "not-run"}
+                and (type(check["exit_code"]) is int or check["exit_code"] is None),
+                "Invalid verification check")
+        if check["result"] == "pass":
+            require(check["exit_code"] == 0, "Passing checks need exit_code 0")
+        outcomes.append(check["result"])
+
+    assessments = data.get("assessments")
+    require(isinstance(assessments, dict), "assessments must be an object")
+    for role, assessment in assessments.items():
+        require(role in {"orchestrator", "tester", "reviewer"}
+                and isinstance(assessment, dict)
+                and set(assessment) == {"agent_id", "result", "summary"}
+                and isinstance(assessment["agent_id"], str) and assessment["agent_id"].strip()
+                and assessment["result"] in {"pass", "fail", "not-run"}
+                and isinstance(assessment["summary"], str) and assessment["summary"].strip(),
+                "Invalid verification assessment")
+        outcomes.append(assessment["result"])
+
+    documentation = data.get("documentation")
+    require(isinstance(documentation, str) and documentation.strip(),
+            "documentation must be a nonempty string")
+    blockers = data.get("blockers")
+    text_list(blockers, "blockers", nonempty=False)
+    roles = required_roles(risk)
+    missing = [role for role in roles if role not in assessments]
+    if missing:
+        outcomes.append("not-run")
+    for role in roles:
+        if role in assessments:
+            require(assessments[role]["agent_id"] not in implementers,
+                    f"{role} must be distinct from implementers")
+    if risk == "high" and not missing:
+        require(assessments["tester"]["agent_id"] != assessments["reviewer"]["agent_id"],
+                "tester and reviewer must be distinct")
+    if blockers or "fail" in outcomes:
+        return "fail"
+    return "not-run" if "not-run" in outcomes else "pass"
+
+
 def run(args):
     project = Path(args.project).resolve()
     if args.command == "config":
@@ -218,29 +297,60 @@ def run(args):
     path = directory / "state.json"
     if args.command == "init":
         require(not directory.exists(), "Task already exists; use status/resume")
-        state = {"schema_version": 1, "task_id": args.task, "title": args.title,
+        state = {"schema_version": 2, "task_id": args.task, "title": args.title,
                  "stage": "analysis", "approval": None, "completed_tasks": [],
-                 "evidence": {}, "attempts": {}, "baseline": fingerprint(project)}
+                 "evidence": {}, "attempts": {}, "baseline": fingerprint(project),
+                 "risk": args.risk or "standard", "risk_reason": args.risk_reason,
+                 "plan_digest": None, "authorization": None}
         write_json(path, state)
         write_json(directory / "tasks.json", [])
         (directory / "spec.md").write_text(f"# {args.title}\n", encoding="utf-8")
         return {"directory": str(directory), **state}
     state = load_state(directory)
     current = fingerprint(project)
+    v2 = state["schema_version"] == 2
     if args.command == "status":
         try:
             valid = approved(project, directory, state)
             issue = None
         except (ValueError, OSError) as error:
             valid, issue = False, str(error)
-        return {**state, "fingerprint": current, "approval_current": valid,
-                "plan_issue": issue, "current_evidence": {
-                    kind: evidence_valid(directory, state, kind, current)
-                    for kind in ("tests", "review", "documentation")}}
+        kinds = ("verification",) if v2 else ("tests", "review", "documentation")
+        result = {**state, "fingerprint": current, "approval_current": valid,
+                  "plan_issue": issue, "current_evidence": {
+                      kind: evidence_valid(directory, state, kind, current) for kind in kinds}}
+        if v2:
+            result["required_assessments"] = list(required_roles(state["risk"]))
+        return result
+
     if args.command == "approve":
-        require(args.confirmed_by_user, "Record approval only after explicit user acceptance")
-        state.update(approval=approval_digest(project, directory), stage="implementation",
-                     completed_tasks=[], evidence={}, attempts={})
+        require(not (args.confirmed_by_user and args.authorized_by_request),
+                "Approval flags are mutually exclusive")
+        if not v2:
+            require(args.confirmed_by_user, "Record approval only after explicit user acceptance")
+            require(args.risk is None and args.risk_reason is None,
+                    "Risk classification is only supported for v2 tasks")
+            state.update(approval=approval_digest(project, directory), stage="implementation",
+                         completed_tasks=[], evidence={}, attempts={})
+        else:
+            risk = args.risk or state["risk"]
+            reason = args.risk_reason if args.risk_reason is not None else state["risk_reason"]
+            if risk != state["risk"]:
+                require(args.risk_reason is not None and args.risk_reason.strip(),
+                        "Risk changes require a fresh --risk-reason")
+                require(state.get("approval") is None or args.confirmed_by_user,
+                        "Reclassifying an authorized task requires explicit user confirmation")
+            require(args.confirmed_by_user or (risk == "low" and args.authorized_by_request),
+                    "Explicit user confirmation is required unless low risk is authorized by request")
+            approval = v2_approval_digest(project, directory, risk, reason)
+            plan_digest = approval_digest(project, directory)
+            # A risk-only or repeated approval must not replenish the repair budget.
+            attempts = state["attempts"] if state.get("plan_digest") == plan_digest else {}
+            state.update(risk=risk, risk_reason=reason, plan_digest=plan_digest,
+                         approval=approval, stage="implementation", completed_tasks=[],
+                         evidence={}, attempts=attempts,
+                         authorization="confirmed-by-user" if args.confirmed_by_user
+                         else "authorized-by-request")
     else:
         require(approved(project, directory, state), "Plan/config changed or is unapproved; reapprove")
         if args.command == "task-done":
@@ -252,7 +362,22 @@ def run(args):
                 state["completed_tasks"].append(args.item)
         elif args.command == "record":
             require(args.fingerprint == current, "Code changed during checks; inspect and rerun affected checks")
-            report = report_file(directory, args.report)
+            if v2:
+                require(args.kind == "verification", "V2 tasks only accept verification reports")
+                report = report_file(directory, args.report)
+                report_data = read_json(report)
+                require(isinstance(report_data, dict), "Verification report must be a JSON object")
+                if args.result == "pass":
+                    require(verification_result(report_data, state["risk"]) == "pass",
+                            "Verification report cannot support a passing result")
+                    required_checks = {command for task in tasks(directory) for command in task["checks"]}
+                    recorded_checks = {check["command"] for check in report_data["checks"]}
+                    require(required_checks <= recorded_checks,
+                            "Missing required checks: " + ", ".join(sorted(required_checks - recorded_checks)))
+            else:
+                require(args.kind in {"tests", "review", "documentation"},
+                        "V1 tasks only accept legacy report kinds")
+                report = report_file(directory, args.report)
             state["evidence"][args.kind] = {
                 "result": args.result, "fingerprint": current,
                 "report": str(report.relative_to(directory.resolve())),
@@ -269,10 +394,14 @@ def run(args):
                     else "orchestrator-diagnosis-required"}
         elif args.command == "advance":
             stage = state["stage"]
+            stages = V2_STAGES if v2 else V1_STAGES
             require(stage not in {"analysis", "done"}, "Cannot advance this stage")
-            needed = {"tests": ("tests",), "review": ("tests", "review"),
-                      "documentation": ("tests", "review", "documentation"),
-                      "delivery": ("tests", "review", "documentation")}.get(stage, ())
+            if v2:
+                needed = ("verification",) if stage in {"verification", "delivery"} else ()
+            else:
+                needed = {"tests": ("tests",), "review": ("tests", "review"),
+                          "documentation": ("tests", "review", "documentation"),
+                          "delivery": ("tests", "review", "documentation")}.get(stage, ())
             require({t["id"] for t in tasks(directory)} <= set(state["completed_tasks"]),
                     "Implementation tasks are incomplete")
             for kind in needed:
@@ -287,20 +416,25 @@ def run(args):
                         "Record the verified draft PR URL")
                 require(delivered.get("commit") == git(project, "rev-parse", "HEAD").decode().strip(),
                         "Delivery commit must match HEAD")
-            state["stage"] = STAGES[STAGES.index(stage) + 1]
+            state["stage"] = stages[stages.index(stage) + 1]
     write_json(path, state)
     return state
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("config", "init", "status", "approve", "task-done", "record", "retry", "advance"))
+    parser.add_argument("command", choices=(
+        "config", "init", "status", "approve", "task-done", "record", "retry", "advance"))
     parser.add_argument("--project", required=True)
     parser.add_argument("--task")
     parser.add_argument("--title")
+    parser.add_argument("--risk", choices=sorted(RISKS),
+                        help="Risk for init (default: standard) or reclassification at approve")
+    parser.add_argument("--risk-reason")
     parser.add_argument("--confirmed-by-user", action="store_true")
+    parser.add_argument("--authorized-by-request", action="store_true")
     parser.add_argument("--item")
-    parser.add_argument("--kind", choices=("tests", "review", "documentation"))
+    parser.add_argument("--kind", choices=("tests", "review", "documentation", "verification"))
     parser.add_argument("--result", choices=("pass", "fail", "not-run"))
     parser.add_argument("--report")
     parser.add_argument("--fingerprint")
