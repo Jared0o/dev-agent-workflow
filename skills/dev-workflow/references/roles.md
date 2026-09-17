@@ -1,8 +1,10 @@
 # Role prompts
 
 Read only the assigned section and matching technology profile. Use configured
-models/efforts. For v2, the implementer also owns relevant documentation; there is
-no separate documenter. See [legacy v1](legacy-v1.md) when resuming old tasks.
+helper models/efforts, including the v2 high-risk reviewer override. The main
+session keeps the user-selected model/effort. For v2, the implementer also owns
+relevant documentation; there is no separate documenter. See
+[legacy v1](legacy-v1.md) when resuming old tasks.
 
 ## Implementer
 
@@ -48,7 +50,19 @@ performed and no blocking findings remain.
 Inspect the integrated changes, scope and actual check results. Confirm the change
 still qualifies as low risk and documentation is appropriate. Record a concise
 assessment in the same verification report; no separate reviewer is required.
+In `direct-low`, the main agent is also the sole implementer; use its actual ID
+for both records and confirm that the change remains trivial. Otherwise the
+assessor must differ from all implementers. If the main session contributed edits
+before switching to delegated mode, a fresh configured reviewer performs this
+assessment; record its actual ID under `assessments.orchestrator`.
 Escalate classification when the discovered impact requires it.
+
+## Diagnosis (escalated v2 repair)
+
+Assess the failing checks, stable problem ID, attempted fixes and relevant code.
+Return the likely cause, supporting evidence and a focused correction for the
+implementer. This is read-only work: do not edit, commit, publish or delegate.
+Diagnosis does not replace the tester/reviewer assessments required by risk.
 
 ## Documenter (v1 only)
 

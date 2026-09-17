@@ -33,7 +33,8 @@ Use `approve --risk high --risk-reason "<new rationale>" --confirmed-by-user`
 to record an explicitly accepted reclassification. Reclassifying an already
 authorized task requires explicit confirmation, including lowering its risk.
 Pause dependent work until any needed acceptance is obtained.
-Risk and reason are fingerprinted with spec, tasks and effective config.
+Risk, execution mode and their reasons are fingerprinted with spec, tasks and
+effective config.
 Approval clears previous completion and evidence; never use reapproval to recycle
 a failed task's repair budget.
 
@@ -46,6 +47,27 @@ Task completion requires its dependencies. The v2 sequence is
 `analysis → implementation → verification → delivery → done`. Documentation is
 part of implementation, not a separate stage. `advance` refuses incomplete work
 or missing, failed or stale required evidence.
+
+## Direct execution for trivial low-risk work
+
+`init` and `approve` accept `--execution-mode delegated|direct-low` and
+`--execution-reason "<rationale>"`. New tasks default to `delegated`. For an
+unambiguous text or cosmetic change, select `direct-low` with `--risk low` and a
+nonempty reason. Approval requires one task without dependencies. Logic, security,
+data or contract changes do not qualify, even if they fit in one line.
+
+The main session implements, runs focused and repository-required checks, and
+assesses the diff. Record its actual ID as the sole `implementer_ids` entry and
+as `assessments.orchestrator.agent_id`. Keep the normal stages and report.
+
+Change modes through `approve --execution-mode <mode> --execution-reason "<reason>"`
+with a fresh rationale and the applicable authorization flag. This clears completion and
+evidence without replenishing repairs. Raising risk also requires `delegated` and
+the existing explicit reclassification acceptance. Old v2 states without mode
+fields remain delegated and keep their original approval digest shape; a mode
+change is explicit. Changing effective config still invalidates prior approval.
+`status` reports the mode and effective helper models; `config --risk high` shows
+the high-risk override without changing state.
 
 ## One verification report
 
@@ -82,8 +104,14 @@ that no update is needed. Keep nonblocking findings, limitations and reuse
 justifications in assessment summaries, referring to full logs when helpful.
 
 Required assessments are `orchestrator` for low, `reviewer` for standard, and
-`tester` plus `reviewer` for high. Assessors must differ from implementers, and
-the high-risk tester and reviewer must differ from each other. Use actual runtime
+`tester` plus `reviewer` for high. In `delegated`, assessors must differ from
+implementers. Only `direct-low` requires the orchestrator to be the sole
+implementer and assessor.
+When switching from direct to delegated execution, retain every actual implementer
+ID, including prior main-session edits. If the main session is among them, a fresh
+configured reviewer performs the low-risk assessment; record that independent
+agent's actual ID under `assessments.orchestrator`.
+The high-risk tester and reviewer must differ from each other. Use actual runtime
 agent identifiers (including the main agent for the low-risk assessment).
 Every listed check must pass with exit code zero and required assessments must
 pass with no blockers to record an overall pass. Failed or unperformed verification
@@ -132,6 +160,11 @@ python3 <plugin>/scripts/workflow.py retry --project <repo> --task add-orders --
 
 Record a retry before each repair round using a stable problem ID. Respect the
 configured ordinary/diagnosed attempt limits; exhausted problems remain blockers.
+An escalated v2 `retry` retains `mode: orchestrator-diagnosis-required` and also
+returns `diagnosis_model` from config. Spawn that model for focused read-only
+diagnosis before the diagnosed attempt; send its correction to the implementer.
+For direct work, switch to delegated mode before this repair. Diagnosis is not
+verification, does not clear blockers and does not extend the retry budget.
 Spec/config changes require a newly accepted revision, not an excuse to reset
 attempts. Never edit state manually to bypass a gate.
 

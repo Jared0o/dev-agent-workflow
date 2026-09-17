@@ -2,7 +2,8 @@
 
 Plugin Codex CLI prowadzący od analizy aplikacji lub featura do przetestowanych
 zmian i draft PR. Zakres kontroli zależy od ryzyka zadania.
-Główny orchestrator deleguje zadania natywnym agentom.
+Główna sesja prowadzi zadania i deleguje pracę natywnym agentom; trywialne
+zmiany niskiego ryzyka wykonuje bezpośrednio.
 Komunikacja z użytkownikiem jest po polsku, materiały robocze po angielsku.
 
 ## Instalacja
@@ -29,7 +30,7 @@ Osobisty marketplace jest wykrywany automatycznie; nie trzeba go dodawać osobny
 Uruchom nową sesję w katalogu aplikacji:
 
 ```sh
-codex -m gpt-6-astra -c 'model_reasoning_effort="high"'
+codex -m gpt-5.6-sol -c 'model_reasoning_effort="medium"'
 ```
 
 Następnie wpisz:
@@ -40,6 +41,8 @@ $dev-workflow Pokaż status zadania add-login.
 $dev-workflow Wznów zadanie add-login.
 ```
 
+Sol / medium to rekomendacja startowa. Orchestrator używa modelu i effort, które
+wybierasz dla głównej sesji; workflow nie wymusza ich zgodności z konfiguracją.
 Skill nie zmienia modelu sesji głównej. W trwającej sesji wybierz go przez `/model`.
 Nazwy modeli i poziomy rozumowania są sprawdzane przez środowisko Codex; przy
 niedostępności workflow zatrzymuje delegowanie i prosi o wybór zamiennika.
@@ -51,24 +54,30 @@ weryfikacja → oddanie zmian**. Orchestrator zapisuje poziom ryzyka i uzasadnie
 
 | Ryzyko | Przykłady | Akceptacja i kontrola |
 |---|---|---|
-| Niskie (`low`) | Zwykły tekst dokumentacji, kosmetyka UI, jednoznaczna lokalna poprawka bez wpływu na bezpieczeństwo, trwałe dane i kontrakty | Jasne zlecenie wystarcza; wykonawca i sprawdzenie przez orchestratora |
+| Niskie (`low`) | Zwykły tekst dokumentacji, kosmetyka UI, jednoznaczna lokalna poprawka bez wpływu na bezpieczeństwo, trwałe dane i kontrakty | Jasne zlecenie wystarcza; trywialne zmiany wykonuje i sprawdza orchestrator, pozostałe deleguje wykonawcy |
 | Standardowe (`standard`, domyślne) | Pozostałe zadania bez przesłanek wysokiego ryzyka | Akceptacja planu, wykonawca i niezależny reviewer |
 | Wysokie (`high`) | Logowanie, uprawnienia, płatności, migracje, operacje destrukcyjne, zgodność publicznego API | Akceptacja planu, wykonawca, niezależny tester i reviewer |
 
-Dla jednego zadania implementacyjnego oznacza to odpowiednio **1, 2 lub 3 agentów
-pomocniczych**, bez liczenia orchestratora i dodatkowych rund napraw. Liczba plików
+Dla jednego zadania implementacyjnego oznacza to **0 pomocników dla trywialnego
+`low`, 1 dla pozostałego `low`, 2 dla `standard` i 3 dla `high`**, bez liczenia
+orchestratora i dodatkowych rund napraw. Liczba plików
 nie wyznacza ryzyka. Niejasny wpływ wymaga rozpoznania; prośba o samą analizę nie
 upoważnia do implementacji. Już zaakceptowanego planu nie trzeba akceptować ponownie.
 
-Orchestrator używa GPT-6 Astra / high, wykonawca i tester GPT-5.6 Terra / medium,
-a reviewer GPT-6 Astra / high. Wykonawca przygotowuje także dokumentację przed
-weryfikacją. Osobny dokumenter GPT-5.6 Luna / low pozostaje tylko dla starych zadań.
+Orchestrator zachowuje model Twojej sesji (zalecany GPT-5.6 Sol / medium).
+Wykonawca i tester używają GPT-5.6 Terra / medium, reviewer standardowy
+GPT-5.6 Sol / medium, a reviewer wysokiego ryzyka GPT-6 Astra / high. Wykonawca
+przygotowuje także dokumentację przed weryfikacją. Osobny dokumenter GPT-5.6 Luna / low pozostaje tylko dla starych zadań.
 Zmiana zakresu lub kontraktu wraca do użytkownika. Wzrost ryzyka zwiększa wymagane
 kontrole i zatrzymuje zależną pracę, jeśli potrzebna jest nowa akceptacja.
 
 Profile obejmują Go, C#/.NET i React/Next.js. Korzystają z narzędzi i wersji
 zastanego projektu. REST/OpenAPI lub gRPC/protobuf wybierane są podczas analizy;
-plugin nie narzuca architektury ani CMS. Domyślnie implementuje jeden wykonawca;
+plugin nie narzuca architektury ani CMS. Tryb `direct-low` jest dostępny tylko dla
+jednoznacznej zmiany tekstu, zwykłej
+dokumentacji lub kosmetyki UI bez wpływu na logikę, bezpieczeństwo, dane i kontrakty.
+Orchestrator zapisuje uzasadnienie, wykonuje zmianę i focused check oraz wymagane
+kontrole repo. Poza tym trybem implementuje jeden wykonawca;
 podział pracy służy tylko niezależnym częściom. Do trzech pomocniczych agentów może
 pracować równolegle, jeżeli zakresy są niezależne. Wspólne kontrakty i lockfile
 mają jednego właściciela. Tylko orchestrator wykonuje operacje Git i publikuje.
@@ -82,13 +91,23 @@ Opcjonalny plik aplikacji `.dev-workflow/config.json` zawiera tylko nadpisania:
 {
   "max_parallel_agents": 2,
   "models": {
-    "implementer": {"model": "gpt-5.6-terra", "effort": "high"}
-  }
+    "implementer": {"model": "gpt-5.6-terra", "effort": "high"},
+    "reviewer": {"model": "gpt-5.6-sol", "effort": "medium"}
+  },
+  "risk_model_overrides": {
+    "high": {"reviewer": {"model": "gpt-6-astra", "effort": "high"}}
+  },
+  "escalation_model": {"model": "gpt-6-astra", "effort": "high"}
 }
 ```
 
 Domyślnie dopuszczone są dwie rundy naprawy problemu i jedna próba po diagnozie
-mocniejszego modelu. Ustawienie `delivery: "local"` kończy pracę lokalnym commitem.
+modelu `escalation_model`. Astra dostaje konkretny problem do diagnozy dopiero po
+wyczerpaniu zwykłych rund; wykonawca wprowadza poprawkę, a wymagane oceny pozostają
+obowiązkowe. Diagnoza nie zwiększa budżetu napraw. Ustawienie `delivery: "local"`
+kończy pracę lokalnym commitem.
+Ustawienia pomocników dobierane są z `models`, następnie z nadpisania dla ryzyka.
+`models.orchestrator` jest wyłącznie rekomendacją startową.
 Modelowe role, limity prób i równoległości można zmieniać w konfiguracji;
 zmiana konfiguracji w trakcie zadania wymaga ponownego zaakceptowania planu.
 
@@ -97,7 +116,9 @@ jeden raport weryfikacji i informacje o publikacji. Orchestrator dodaje `.dev-wo
 plików aplikacji. Zawartość nie trafia do PR. Zapis umożliwia wznowienie w nowej
 sesji; repozytoryjne zmiany i raporty są porównywane przez SHA-256. Nowe zadania
 używają formatu stanu v2. Istniejące zadania v1 zachowują poprzednie etapy,
-akceptację i wymagane raporty; nie są automatycznie migrowane. Konfiguracja
+akceptację i wymagane raporty; nie są automatycznie migrowane. Stany v2 bez trybu
+wykonania pozostają delegowane i zachowują poprzedni format akceptacji. Nowa
+efektywna konfiguracja nadal unieważnia wcześniejszą akceptację. Konfiguracja
 pozostaje w formacie v1, łącznie z rolą dokumentera dla starszych zadań.
 
 [Opis poleceń i formatu stanu](skills/dev-workflow/references/state.md)
@@ -120,8 +141,8 @@ wyniku pozytywnego. Reviewer wykorzystuje aktualne wyniki wykonawcy, a tester
 wysokiego ryzyka koncentruje się na scenariuszach i integracjach wymagających
 niezależnego sprawdzenia. Nowy agent nie oznacza automatycznie powtórzenia testów.
 
-Podsumowanie podaje rzeczywistą liczbę agentów/prób i tokeny, jeżeli runtime je
-udostępnia. Plugin nie odczytuje sekretów ani prywatnych logów sesji w celu pomiaru.
+Podsumowanie podaje rzeczywiste modele/effort pomocników, liczbę agentów/prób
+i tokeny, jeżeli runtime je udostępnia. Plugin nie odczytuje sekretów ani prywatnych logów sesji w celu pomiaru.
 Nie obiecuje procentowej oszczędności ani przeliczenia tokenów na limit abonamentu.
 Równoległość skraca czas części zadań, ale może zwiększać zużycie tokenów.
 

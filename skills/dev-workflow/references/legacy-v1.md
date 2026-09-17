@@ -1,8 +1,10 @@
 # Existing v1 tasks
 
 Use this only when `status` reports `schema_version: 1`. Do not convert the task
-or relax its gates. New tasks use v2. Configuration retains its v1 shape and model
-roles so the update alone does not invalidate an existing approval digest.
+or relax its gates. New tasks use v2. Configuration remains schema version 1 and
+retains the original model roles. Changes to effective configuration, including
+new defaults, invalidate existing approval and require explicit acceptance again.
+Use base `models` settings; v2 risk overrides and direct execution do not apply.
 
 The original sequence remains `analysis → implementation → tests → review →
 documentation → delivery → done`. All five work stages remain required even for

@@ -4,7 +4,7 @@ Keep `spec.md` focused on the problem, scope/exclusions, architecture decisions,
 contracts (links to their source), acceptance scenarios and validation commands.
 Include migrations and compatibility only when relevant. Do not copy the repo.
 Record the exact authorized revision, not a paraphrase of an earlier proposal.
-For v2 include risk and its rationale. A single owner needs only one task entry;
+For v2 include risk, execution mode and their rationales. A single owner needs only one task entry;
 do not invent a graph or contract for work that does not need one.
 
 `tasks.json` is an array. Each task has this shape:
@@ -39,13 +39,13 @@ on it. An agent encountering necessary out-of-scope work reports it first.
 
 The orchestrator's spawn prompt contains:
 
-- Role instruction from `roles.md` and explicit configured model/effort.
+- Role instruction from `roles.md` and explicit effective helper model/effort for the task risk.
 - Goal, task ID, authorized spec excerpt, risk, contract reference and owned files.
 - Necessary context references and the acceptance/check lists.
 - A statement that workers share the workspace, must preserve others' edits and
   may not delegate, change Git branches, commit or publish.
 - Required reply: `status`, `changed_files`, `checks` (command/result),
-  `findings_or_blockers`, `artifact_paths`, plus actual usage if exposed.
+  `findings_or_blockers`, `artifact_paths`, plus actual model/effort and usage if exposed.
 
 Use a fresh context (`fork_turns=none`, or the runtime's equivalent) when selecting
 a worker model. If the runtime requires shared history to preserve a tool capability,
