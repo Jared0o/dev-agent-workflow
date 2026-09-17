@@ -72,6 +72,8 @@ class WorkflowTests(unittest.TestCase):
         data.pop("risk", None)
         data.pop("risk_reason", None)
         data.pop("plan_digest", None)
+        data.pop("execution_mode", None)
+        data.pop("execution_reason", None)
         legacy.write_text(json.dumps(data), encoding="utf-8")
         (self.task / "spec.md").write_text(
             "# Add feature\nImplement the agreed behavior with appropriate tests.\n",
@@ -187,6 +189,14 @@ class WorkflowTests(unittest.TestCase):
         data = self.cli("config")
         self.assertEqual(data["models"]["implementer"]["model"], "custom-coder")
         self.assertEqual(data["models"]["implementer"]["effort"], "medium")
+        self.override({"risk_model_overrides": {"high": {"reviewer": {"effort": "medium"}}},
+                       "escalation_model": {"model": "custom-diagnoser"},
+                       "models": {"reviewer": {"model": "custom-reviewer"}}})
+        data = self.cli("config", "--risk", "high")
+        self.assertEqual(data["effective_models"]["reviewer"],
+                         {"model": "gpt-6-astra", "effort": "medium"})
+        self.assertEqual(data["models"]["reviewer"]["model"], "custom-reviewer")
+        self.assertEqual(data["escalation_model"], {"model": "custom-diagnoser", "effort": "high"})
         for override, message in [
             ({"unknown": True}, "Unknown config field"),
             ({"max_parallel_agents": True}, "Invalid max_parallel_agents"),
@@ -196,6 +206,11 @@ class WorkflowTests(unittest.TestCase):
             ({"models": {"tester": {"effort": "extreme"}}}, "Invalid reasoning effort"),
             ({"delivery": "publish"}, "Invalid delivery mode"),
             ({"schema_version": 2}, "Unsupported config version"),
+            ({"escalation_model": {"model": "bad model"}}, "Invalid model identifier"),
+            ({"escalation_model": {"effort": "extreme"}}, "Invalid reasoning effort"),
+            ({"risk_model_overrides": {"high": {"reviewer": {"effort": "extreme"}}}},
+             "Invalid reasoning effort"),
+            ({"risk_model_overrides": {"standard": {}}}, "Unknown config field"),
         ]:
             with self.subTest(override=override):
                 self.override(override)
@@ -357,6 +372,11 @@ class WorkflowTests(unittest.TestCase):
         self.cli("retry", "--problem", "test-failure", error="Repair budget exhausted")
         self.assertEqual(self.cli("status")["attempts"]["test-failure"], 3)
         self.assertEqual(self.cli("retry", "--problem", "other-failure")["attempt"], 1)
+
+    def test_legacy_approval_rejects_execution_modes(self):
+        self.initialize()
+        self.cli("approve", "--confirmed-by-user", "--execution-mode", "direct-low",
+                 "--execution-reason", "Text only", error="only supported for v2")
 
     def reach_delivery(self):
         self.prepare_tests()

@@ -1,6 +1,7 @@
 """Exercise risk, authorization, evidence and delivery through the public v2 CLI."""
 
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -121,6 +122,148 @@ class WorkflowV2Tests(unittest.TestCase):
                  error="mutually exclusive")
         state = self.cli("approve", "--confirmed-by-user")
         self.assertEqual(state["authorization"], "confirmed-by-user")
+
+    def direct_approval(self):
+        self.initialize("low")
+        return self.cli("approve", "--execution-mode", "direct-low",
+                        "--execution-reason", "Only replace a displayed label",
+                        "--authorized-by-request")
+
+    def test_direct_low_self_assessment_and_required_checks(self):
+        state = self.direct_approval()
+        self.assertEqual(state["execution_mode"], "direct-low")
+        self.cli("task-done", "--item", "work")
+        self.cli("advance")
+        report = self.report("low")
+        report["implementer_ids"] = ["orchestrator"]
+        self.record(report)
+        self.assertEqual(self.cli("advance")["stage"], "delivery")
+        report["checks"][0]["command"] = "git diff --check"
+        self.record(report, error="Missing required checks")
+
+    def test_direct_low_rejects_inconsistent_implementers(self):
+        self.direct_approval()
+        for ids in (["worker"], ["orchestrator", "worker"]):
+            report = self.report("low")
+            report["implementer_ids"] = ids
+            self.record(report, error="direct-low")
+        report = self.report("low")
+        report["implementer_ids"] = ["orchestrator"]
+        report["assessments"] = {}
+        self.record(report, error="cannot support a passing result")
+
+    def test_delegated_low_rejects_self_assessment(self):
+        self.prepare_verification("low")
+        report = self.report("low")
+        report["implementer_ids"] = ["orchestrator"]
+        self.record(report, error="distinct")
+
+    def test_direct_low_requires_reason_low_risk_and_single_task(self):
+        self.cli("init", "--title", "Replace a label", "--risk", "low",
+                 "--execution-mode", "direct-low", error="execution-reason")
+        self.cli("init", "--title", "Replace a label", "--risk", "standard",
+                 "--execution-mode", "direct-low", "--execution-reason", "Text only",
+                 error="requires low risk")
+        self.initialize("low")
+        self.cli("approve", "--execution-mode", "direct-low",
+                 "--authorized-by-request", error="execution-reason")
+        plan_path = self.task / "tasks.json"
+        plan = json.loads(plan_path.read_text())
+        plan.append({**plan[0], "id": "second", "files": ["other.txt"]})
+        plan_path.write_text(json.dumps(plan))
+        self.cli("approve", "--execution-mode", "direct-low",
+                 "--execution-reason", "Text only", "--authorized-by-request",
+                 error="one implementation task")
+
+    def test_direct_init_and_mode_change_invalidate_evidence_preserve_repairs(self):
+        self.cli("init", "--title", "Replace a label", "--risk", "low",
+                 "--risk-reason", "Text only", "--execution-mode", "direct-low",
+                 "--execution-reason", "Displayed label only")
+        (self.task / "spec.md").write_text("Replace only the displayed sign-in label.")
+        (self.task / "tasks.json").write_text(json.dumps([{
+            "id": "work", "goal": "Replace label", "files": ["app.txt"],
+            "depends_on": [], "contract": "", "acceptance": ["Label replaced"],
+            "checks": ["python3 -m unittest"],
+        }]))
+        self.cli("approve", "--authorized-by-request")
+        self.cli("task-done", "--item", "work")
+        report = self.report("low")
+        report["implementer_ids"] = ["orchestrator"]
+        self.record(report)
+        self.cli("retry", "--problem", "label")
+        self.cli("approve", "--execution-mode", "delegated", "--authorized-by-request",
+                 error="fresh --execution-reason")
+        state = self.cli("approve", "--execution-mode", "delegated",
+                         "--execution-reason", "Needs a worker", "--authorized-by-request")
+        self.assertEqual(state["attempts"], {"label": 1})
+        self.assertEqual(state["evidence"], {})
+        self.assertEqual(state["completed_tasks"], [])
+        self.record(report, error="distinct")
+        report["implementer_ids"] = ["orchestrator", "worker"]
+        report["assessments"]["orchestrator"]["agent_id"] = "fresh-assessor"
+        self.record(report)
+
+    def test_mode_tampering_invalidates_approval(self):
+        self.direct_approval()
+        path = self.task / "state.json"
+        original = json.loads(path.read_text())
+        for change in ({"execution_mode": "delegated"}, {"execution_reason": "Changed"}):
+            path.write_text(json.dumps({**original, **change}))
+            self.assertFalse(self.cli("status")["approval_current"])
+            self.cli("advance", error="unapproved")
+
+    def test_direct_risk_escalation_requires_delegated_mode(self):
+        self.direct_approval()
+        self.cli("retry", "--problem", "label")
+        self.cli("approve", "--risk", "high", "--risk-reason", "Authorization affected",
+                 "--confirmed-by-user", error="requires low risk")
+        state = self.cli("approve", "--risk", "high",
+                         "--risk-reason", "Authorization affected", "--execution-mode", "delegated",
+                         "--execution-reason", "Security logic needs workers", "--confirmed-by-user")
+        self.assertEqual(state["attempts"], {"label": 1})
+        self.assertEqual(self.cli("status")["required_assessments"], ["tester", "reviewer"])
+
+    def test_old_v2_digest_keeps_delegated_mode_and_independence(self):
+        self.initialize("low")
+        state = self.cli("approve", "--authorized-by-request")
+        state.pop("execution_mode")
+        state.pop("execution_reason")
+        old_payload = {"plan": state["plan_digest"], "risk": state["risk"],
+                       "risk_reason": state["risk_reason"]}
+        state["approval"] = hashlib.sha256(json.dumps(old_payload, sort_keys=True).encode()).hexdigest()
+        (self.task / "state.json").write_text(json.dumps(state))
+        status = self.cli("status")
+        self.assertTrue(status["approval_current"])
+        self.assertEqual(status["execution_mode"], "delegated")
+        self.assertEqual(self.cli("approve", "--authorized-by-request")["approval"], state["approval"])
+        report = self.report("low")
+        report["implementer_ids"] = ["orchestrator"]
+        self.record(report, error="distinct")
+        self.cli("approve", "--execution-mode", "direct-low", "--execution-reason", "Text only",
+                 "--authorized-by-request")
+        self.record(report)
+
+    def test_risk_models_and_escalated_diagnosis(self):
+        self.initialize("standard")
+        standard = self.cli("config")["effective_models"]
+        high = self.cli("config", "--risk", "high")["effective_models"]
+        self.assertEqual(standard["reviewer"], {"model": "gpt-5.6-sol", "effort": "medium"})
+        self.assertEqual(high["reviewer"], {"model": "gpt-6-astra", "effort": "high"})
+        self.assertEqual(high["tester"], standard["tester"])
+        self.cli("approve", "--confirmed-by-user")
+        self.assertEqual(self.cli("status")["effective_models"], standard)
+        for _ in range(2):
+            ordinary = self.cli("retry", "--problem", "failure")
+            self.assertEqual(ordinary["mode"], "ordinary")
+            self.assertNotIn("diagnosis_model", ordinary)
+        escalated = self.cli("retry", "--problem", "failure")
+        self.assertEqual(escalated["diagnosis_model"], {"model": "gpt-6-astra", "effort": "high"})
+        self.cli("retry", "--problem", "failure", error="budget exhausted")
+
+    def test_execution_flags_cannot_override_recorded_mode(self):
+        self.initialize("low")
+        self.cli("config", "--execution-mode", "direct-low", error="only supported by init and approve")
+        self.cli("status", "--execution-mode", "direct-low", error="only supported by init and approve")
 
     def test_rationale_and_spec_are_required(self):
         self.initialize("low")

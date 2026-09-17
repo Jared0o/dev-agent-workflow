@@ -12,10 +12,13 @@ agent handoffs in English. User instructions and existing authorization prevail.
 
 1. Resolve the plugin root (two directories above this skill). Run
    `scripts/workflow.py config --project <root>` to read effective model, parallelism,
-   repair and delivery settings. The main session must use the configured
-   orchestrator model; the skill cannot switch it. If a requested model/effort or
-   native delegation is unavailable, preserve progress and request a replacement
-   choice rather than silently substituting.
+   repair and delivery settings. The main session is the orchestrator: respect the
+   user-selected model and effort. The configured orchestrator (Sol / medium by
+   default) is only a launch recommendation; the skill cannot switch the session.
+   For v2 use `effective_models` for helpers (`config --risk <risk>` or task
+   `status`); v1 keeps the base `models` roles.
+   If a requested helper model/effort or native delegation is unavailable, preserve
+   progress and request a replacement choice rather than silently substituting.
 2. Inspect applicable AGENTS.md, Git status, manifests and relevant entrypoints.
    Read only matching [technology profiles](references/profiles/). For new apps,
    establish architecture/tooling and initialize Git before using the helper.
@@ -33,13 +36,20 @@ agent handoffs in English. User instructions and existing authorization prevail.
 
 | Risk | Criteria | Helpers for one implementation task |
 |---|---|---|
-| `low` | Plain documentation, cosmetic UI, or an unambiguous local fix with no security, persistent-data or contract impact | One implementer; orchestrator checks the result |
+| `low` | Plain documentation, cosmetic UI, or an unambiguous local fix with no security, persistent-data or contract impact | Direct orchestrator execution for trivial changes; otherwise one implementer; orchestrator checks the result |
 | `standard` | Other understood work without high-risk triggers; the default | One implementer and one independent reviewer |
 | `high` | Authentication, authorization, payments, migrations, destructive operations or public API compatibility | One implementer, independent tester and independent reviewer |
 
 Inspect uncertain impact before classifying; file count is not a risk measure.
 A clear user request authorizes low-risk work without another approval pause.
 Record request authorization explicitly; selecting `low` alone is not approval.
+
+Choose `direct-low` only for an unambiguous text, ordinary documentation or cosmetic
+UI change with no logic, security, data or contract impact. Inspect context first;
+file count and `low` classification alone do not establish triviality. Record the
+execution mode and reason with one implementation task without dependencies.
+Other low-risk work uses `delegated`. Both paths retain focused checks and all
+repository-required checks; do not add tests that only mirror a text replacement.
 For standard/high work, present the plan and wait for explicit acceptance unless
 the user already accepted that exact plan. A request to only analyze never
 authorizes implementation, even at low risk.
@@ -47,14 +57,20 @@ authorizes implementation, even at low risk.
 ## Execute
 
 1. **Implementation, tests and documentation.** Delegate to one configured
-   implementer by default. The same agent runs focused required checks and updates
-   relevant documentation before verification; do not spawn a documenter for v2.
+   implementer in `delegated` mode. In `direct-low`, implement directly in the main
+   session and use its actual runtime ID as the implementer. The implementing
+   agent runs focused required checks and updates relevant documentation before
+   verification; do not spawn a documenter for v2.
    Parallelize only independent scopes within `max_parallel_agents` and runtime
    limits. Shared contracts, generated files and lockfiles have one owner.
 2. **Verification.** Integrate changes and use observed check results for the current
-   code. At low risk, inspect the diff and evidence yourself. At standard risk,
-   use a fresh configured reviewer. At high risk, first use a fresh tester for
-   acceptance coverage and affected integrations, then a distinct reviewer.
+   code. At low risk, inspect the diff and evidence yourself. If you contributed
+   implementation before switching to `delegated`, retain all implementer IDs and
+   delegate the low-risk assessment to a fresh configured reviewer; record its
+   actual ID under `assessments.orchestrator`. At standard risk,
+   use a fresh configured reviewer (Sol / medium by default). At high risk, use
+   a fresh tester for acceptance coverage and affected integrations, then a
+   distinct reviewer with the high-risk override (Astra / high by default).
    Read only the assigned section in [roles](references/roles.md). Neither role
    repeats an unchanged passing suite without a concrete reason.
 3. **Delivery.** Aggregate one verification report using the state reference,
@@ -67,15 +83,24 @@ authorizes implementation, even at low risk.
 - After fixes, rerun affected checks and review the delta plus relevant context.
   Reuse earlier results only with a provable baseline and a short justification;
   follow the state reference. Missing required checks are not passes.
-- If new information increases risk, update the classification and required
-  verification. Pause dependent work for any newly required user acceptance or
+- If a direct task proves nontrivial, switch to `delegated` with a fresh execution
+  reason before continuing. If new information increases risk, also update the
+  classification and required verification. Pause dependent work for any newly
+  required user acceptance or
   material scope/contract change. Reapproval is for an accepted plan revision,
   never a way to reset a failing task's repair budget.
 - Use configured repair limits (two ordinary rounds and one diagnosed attempt by
-  default). Preserve stable problem IDs. Workers do not delegate, commit, switch
-  branches or publish. Preserve unrelated user work.
+  default). Before an escalated repair, delegate a focused, read-only diagnosis
+  to `diagnosis_model` returned by `retry` (Astra / high by default). Give it the
+  failing evidence and relevant context, not the whole session. It returns a cause
+  and proposed correction; the implementer applies the fix and required assessors
+  verify it. For `direct-low`, switch to `delegated` before this diagnosed repair.
+  Do not consult Astra routinely for low/standard tasks. Preserve stable problem
+  IDs. Workers do not delegate, commit, switch branches or publish. Preserve
+  unrelated user work.
 - Save state at meaningful boundaries and before stopping. Keep full logs in the
   ignored task directory; handoffs contain outcomes, references and blockers.
-  Report agent/repair counts and token usage only when exposed by the runtime.
+  Report observed helper models/efforts, agent/repair counts and token usage only
+  when exposed by the runtime; never infer usage from configured defaults.
 - Helpers validate recorded artifacts, not whether a person approved, an agent was
   independent or a command actually ran. Record observed events honestly.
