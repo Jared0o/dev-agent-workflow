@@ -1,6 +1,6 @@
 {
   "name": "dev-agent-workflow",
-  "version": "0.1.0+codex.20260914204914",
+  "version": "0.1.0+codex.20260922191533",
   "description": "Native Codex agents for risk-based planning, implementation, focused verification and resumable delivery.",
   "author": {
     "name": "Jared0o"

@@ -189,14 +189,24 @@ class WorkflowTests(unittest.TestCase):
         data = self.cli("config")
         self.assertEqual(data["models"]["implementer"]["model"], "custom-coder")
         self.assertEqual(data["models"]["implementer"]["effort"], "medium")
+        self.assertEqual(data["architecture_model"], {"model": "gpt-6-astra", "effort": "high"})
+        self.override({"models": {"implementer": {"model": "gpt-5.6-terra"}},
+                       "architecture_model": {"effort": "medium"}})
+        legacy = self.cli("config")
+        self.assertEqual(legacy["models"]["implementer"],
+                         {"model": "gpt-5.6-terra", "effort": "medium"})
+        self.assertEqual(legacy["architecture_model"],
+                         {"model": "gpt-6-astra", "effort": "medium"})
         self.override({"risk_model_overrides": {"high": {"reviewer": {"effort": "medium"}}},
                        "escalation_model": {"model": "custom-diagnoser"},
+                       "architecture_model": {"model": "custom-architect"},
                        "models": {"reviewer": {"model": "custom-reviewer"}}})
         data = self.cli("config", "--risk", "high")
         self.assertEqual(data["effective_models"]["reviewer"],
                          {"model": "gpt-6-astra", "effort": "medium"})
         self.assertEqual(data["models"]["reviewer"]["model"], "custom-reviewer")
         self.assertEqual(data["escalation_model"], {"model": "custom-diagnoser", "effort": "high"})
+        self.assertEqual(data["architecture_model"], {"model": "custom-architect", "effort": "high"})
         for override, message in [
             ({"unknown": True}, "Unknown config field"),
             ({"max_parallel_agents": True}, "Invalid max_parallel_agents"),
@@ -208,6 +218,8 @@ class WorkflowTests(unittest.TestCase):
             ({"schema_version": 2}, "Unsupported config version"),
             ({"escalation_model": {"model": "bad model"}}, "Invalid model identifier"),
             ({"escalation_model": {"effort": "extreme"}}, "Invalid reasoning effort"),
+            ({"architecture_model": {"model": "bad model"}}, "Invalid model identifier"),
+            ({"architecture_model": {"effort": "extreme"}}, "Invalid reasoning effort"),
             ({"risk_model_overrides": {"high": {"reviewer": {"effort": "extreme"}}}},
              "Invalid reasoning effort"),
             ({"risk_model_overrides": {"standard": {}}}, "Unknown config field"),
@@ -227,6 +239,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(self.cli("status")["approval_current"])
         self.approve()
         self.override({"delivery": "local"})
+        self.assertFalse(self.cli("status")["approval_current"])
+        self.approve()
+        self.override({"delivery": "local", "architecture_model": {"effort": "medium"}})
         self.assertFalse(self.cli("status")["approval_current"])
 
     def test_reapproval_clears_prior_results(self):

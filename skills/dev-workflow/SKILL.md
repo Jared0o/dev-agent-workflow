@@ -31,6 +31,14 @@ agent handoffs in English. User instructions and existing authorization prevail.
    [handoffs](references/handoffs.md) when delegating and
    [delivery](references/delivery.md) before implementation to establish the branch
    and intended destination.
+5. Consult `architecture_model` (Astra / high by default) only when the user
+   explicitly asks for an architecture consultation. A suggested plan, request for
+   analysis, or acceptance of a plan does not authorize it. Give the consultant
+   the relevant constraints and design question for read-only assessment. The
+   consultant returns recommendations, alternatives, consequences and unknowns;
+   the orchestrator records its conclusions in `spec.md` and obtains any needed
+   plan acceptance before implementation. This consultation never replaces the
+   risk-required tester/reviewer assessments or repository checks.
 
 ## Choose the required verification
 
@@ -98,6 +106,9 @@ authorizes implementation, even at low risk.
   Do not consult Astra routinely for low/standard tasks. Preserve stable problem
   IDs. Workers do not delegate, commit, switch branches or publish. Preserve
   unrelated user work.
+- Architecture consultation is separate from escalated repair diagnosis. Do not
+  start it automatically for high risk, uncertainty, a suggested plan or plan
+  acceptance; require explicit user authorization covering that consultation.
 - Save state at meaningful boundaries and before stopping. Keep full logs in the
   ignored task directory; handoffs contain outcomes, references and blockers.
   Report observed helper models/efforts, agent/repair counts and token usage only

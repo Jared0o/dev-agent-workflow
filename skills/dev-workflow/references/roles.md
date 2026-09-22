@@ -64,6 +64,15 @@ Return the likely cause, supporting evidence and a focused correction for the
 implementer. This is read-only work: do not edit, commit, publish or delegate.
 Diagnosis does not replace the tester/reviewer assessments required by risk.
 
+## Architecture consultant (explicit user request only)
+
+Assess the specified design question and relevant constraints read-only. Return
+recommendations, alternatives, consequences and unknowns to the orchestrator.
+Do not edit files, implement, commit, publish or delegate. The orchestrator records
+its conclusions in the task spec and obtains any necessary plan acceptance.
+Consultation does not replace implementation checks or independent verification.
+Do not infer a consultation request from a suggested or accepted plan.
+
 ## Documenter (v1 only)
 
 Update documentation from the verified diff, contract and outcomes, keeping its

@@ -55,6 +55,13 @@ command evidence so checks can be reused when still valid. V2 workers return
 results for the orchestrator's single verification report, not mandatory separate
 stage reports.
 
+Only on an explicit user request for architecture consultation, send a separate
+read-only prompt using `architecture_model` from effective config. Include the
+design question, constraints and relevant references; request recommendations,
+alternatives, consequences and unknowns. Record the orchestrator's conclusions
+in `spec.md` before implementation. A proposed or accepted plan alone does not
+trigger consultation, and its result cannot satisfy required verification.
+
 On return, verify file scope and dependencies, retain a short result, record a
 completed implementation task, then dispatch newly unblocked tasks. Workers never
 mark their own stage as accepted. If a question changes the spec or task graph,
