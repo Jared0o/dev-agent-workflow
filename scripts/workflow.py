@@ -88,6 +88,7 @@ def config(project):
             "Risk model overrides support only the high-risk reviewer")
     validate_model(data["risk_model_overrides"]["high"]["reviewer"])
     validate_model(data["escalation_model"])
+    validate_model(data["architecture_model"])
     for key in ("max_parallel_agents", "repair_rounds", "escalated_attempts"):
         require(type(data[key]) is int and 1 <= data[key] <= 8, f"Invalid {key}")
     require(data["communication_language"] == "pl" and data["working_language"] == "en",

@@ -30,7 +30,7 @@ Osobisty marketplace jest wykrywany automatycznie; nie trzeba go dodawać osobny
 Uruchom nową sesję w katalogu aplikacji:
 
 ```sh
-codex -m gpt-5.6-sol -c 'model_reasoning_effort="medium"'
+codex -m gpt-6-sol -c 'model_reasoning_effort="medium"'
 ```
 
 Następnie wpisz:
@@ -60,14 +60,20 @@ weryfikacja → oddanie zmian**. Orchestrator zapisuje poziom ryzyka i uzasadnie
 
 Dla jednego zadania implementacyjnego oznacza to **0 pomocników dla trywialnego
 `low`, 1 dla pozostałego `low`, 2 dla `standard` i 3 dla `high`**, bez liczenia
-orchestratora i dodatkowych rund napraw. Liczba plików
+orchestratora, dodatkowych rund napraw i konsultacji architektury na wyraźną prośbę.
+Liczba plików
 nie wyznacza ryzyka. Niejasny wpływ wymaga rozpoznania; prośba o samą analizę nie
 upoważnia do implementacji. Już zaakceptowanego planu nie trzeba akceptować ponownie.
 
-Orchestrator zachowuje model Twojej sesji (zalecany GPT-5.6 Sol / medium).
-Wykonawca i tester używają GPT-5.6 Terra / medium, reviewer standardowy
-GPT-5.6 Sol / medium, a reviewer wysokiego ryzyka GPT-6 Astra / high. Wykonawca
-przygotowuje także dokumentację przed weryfikacją. Osobny dokumenter GPT-5.6 Luna / low pozostaje tylko dla starych zadań.
+Orchestrator zachowuje model Twojej sesji (zalecany GPT-6 Sol / medium).
+Wykonawca, tester i reviewer standardowy używają GPT-6 Sol / medium, a reviewer
+wysokiego ryzyka GPT-6 Astra / high. Wykonawca przygotowuje także dokumentację
+przed weryfikacją. Osobny dokumenter GPT-6 Sol / low pozostaje tylko dla starych zadań.
+Na wyraźną prośbę użytkownika orchestrator może poprosić GPT-6 Astra / high o
+konsultację architektury. Konsultant tylko analizuje projekt i zwraca zalecenia,
+alternatywy, konsekwencje i niewiadome; orchestrator zapisuje wnioski w specyfikacji.
+Sama propozycja lub akceptacja planu nie uruchamia konsultacji. Nie zastępuje ona
+wymaganych testów ani niezależnej weryfikacji.
 Zmiana zakresu lub kontraktu wraca do użytkownika. Wzrost ryzyka zwiększa wymagane
 kontrole i zatrzymuje zależną pracę, jeśli potrzebna jest nowa akceptacja.
 
@@ -91,13 +97,14 @@ Opcjonalny plik aplikacji `.dev-workflow/config.json` zawiera tylko nadpisania:
 {
   "max_parallel_agents": 2,
   "models": {
-    "implementer": {"model": "gpt-5.6-terra", "effort": "high"},
-    "reviewer": {"model": "gpt-5.6-sol", "effort": "medium"}
+    "implementer": {"model": "gpt-6-sol", "effort": "high"},
+    "reviewer": {"model": "gpt-6-sol", "effort": "medium"}
   },
   "risk_model_overrides": {
     "high": {"reviewer": {"model": "gpt-6-astra", "effort": "high"}}
   },
-  "escalation_model": {"model": "gpt-6-astra", "effort": "high"}
+  "escalation_model": {"model": "gpt-6-astra", "effort": "high"},
+  "architecture_model": {"model": "gpt-6-astra", "effort": "high"}
 }
 ```
 
@@ -107,7 +114,8 @@ wyczerpaniu zwykłych rund; wykonawca wprowadza poprawkę, a wymagane oceny pozo
 obowiązkowe. Diagnoza nie zwiększa budżetu napraw. Ustawienie `delivery: "local"`
 kończy pracę lokalnym commitem.
 Ustawienia pomocników dobierane są z `models`, następnie z nadpisania dla ryzyka.
-`models.orchestrator` jest wyłącznie rekomendacją startową.
+`models.orchestrator` jest wyłącznie rekomendacją startową. `architecture_model`
+jest osobnym ustawieniem i nie dodaje roli do `models` ani do wymaganych ocen.
 Modelowe role, limity prób i równoległości można zmieniać w konfiguracji;
 zmiana konfiguracji w trakcie zadania wymaga ponownego zaakceptowania planu.
 
@@ -118,8 +126,11 @@ sesji; repozytoryjne zmiany i raporty są porównywane przez SHA-256. Nowe zadan
 używają formatu stanu v2. Istniejące zadania v1 zachowują poprzednie etapy,
 akceptację i wymagane raporty; nie są automatycznie migrowane. Stany v2 bez trybu
 wykonania pozostają delegowane i zachowują poprzedni format akceptacji. Nowa
-efektywna konfiguracja nadal unieważnia wcześniejszą akceptację. Konfiguracja
-pozostaje w formacie v1, łącznie z rolą dokumentera dla starszych zadań.
+efektywna konfiguracja nadal unieważnia wcześniejszą akceptację. Starsze nadpisania
+modeli, także GPT-5.6, pozostają ważne i zachowują wskazane wartości. Zmiana
+domyślnych modeli lub dodanie efektywnego `architecture_model` unieważnia
+wcześniejszą akceptację zadania, jeśli zmienia jego efektywną konfigurację.
+Konfiguracja pozostaje w formacie v1, łącznie z rolą dokumentera dla starszych zadań.
 
 [Opis poleceń i formatu stanu](skills/dev-workflow/references/state.md)
 wyjaśnia akceptację, kontrolę zależności, zapisywanie wyników i wznowienie.

@@ -246,10 +246,17 @@ class WorkflowV2Tests(unittest.TestCase):
     def test_risk_models_and_escalated_diagnosis(self):
         self.initialize("standard")
         standard = self.cli("config")["effective_models"]
+        low = self.cli("config", "--risk", "low")["effective_models"]
         high = self.cli("config", "--risk", "high")["effective_models"]
-        self.assertEqual(standard["reviewer"], {"model": "gpt-5.6-sol", "effort": "medium"})
+        self.assertEqual(low, standard)
+        self.assertEqual(standard["orchestrator"], {"model": "gpt-6-sol", "effort": "medium"})
+        for role in ("implementer", "tester", "reviewer"):
+            self.assertEqual(standard[role], {"model": "gpt-6-sol", "effort": "medium"})
+        self.assertEqual(standard["documenter"], {"model": "gpt-6-sol", "effort": "low"})
         self.assertEqual(high["reviewer"], {"model": "gpt-6-astra", "effort": "high"})
         self.assertEqual(high["tester"], standard["tester"])
+        self.assertEqual(self.cli("config")["architecture_model"],
+                         {"model": "gpt-6-astra", "effort": "high"})
         self.cli("approve", "--confirmed-by-user")
         self.assertEqual(self.cli("status")["effective_models"], standard)
         for _ in range(2):

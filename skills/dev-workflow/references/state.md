@@ -67,7 +67,9 @@ the existing explicit reclassification acceptance. Old v2 states without mode
 fields remain delegated and keep their original approval digest shape; a mode
 change is explicit. Changing effective config still invalidates prior approval.
 `status` reports the mode and effective helper models; `config --risk high` shows
-the high-risk override without changing state.
+the high-risk override without changing state. `config` also exposes the separate
+`architecture_model` setting for consultation explicitly requested by the user.
+It does not add a role to `effective_models` or change required assessments.
 
 ## One verification report
 
